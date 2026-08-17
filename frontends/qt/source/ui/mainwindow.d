@@ -60,10 +60,13 @@ import sideload;
 import tools;
 import utils;
 
+import ui.autostart;
 import ui.chrome;
+import ui.installtracker;
 import ui.loginwindow;
 import ui.managewindow;
 import ui.sessionstore;
+import ui.tray;
 import ui.utils;
 
 alias MainWindowUI = UIStruct!"mainwindow.ui";
@@ -98,6 +101,20 @@ class MainWindow: QMainWindow {
     private string lastLoggedStage;
     private QTimer logFadeTimer;
 
+    /// What has been installed, so signatures can be renewed before Apple
+    /// expires them after seven days.
+    private InstallTracker tracker;
+    private QTimer renewalTimer;
+    private QMenu trayMenu;
+    private bool quitting;
+
+    /// Captured when an install starts, so the tracker can be updated once it
+    /// succeeds; the selection may have moved on by then.
+    private string pendingBundleId;
+    private string pendingBundleName;
+    private string pendingIpaPath;
+    private string pendingUdid;
+
 
     this(string configurationPath, Device device, ADI adi) {
         ui = cpp_new!MainWindowUI();
@@ -117,6 +134,9 @@ class MainWindow: QMainWindow {
         setUpWindowChrome();
         setUpIcons();
         updateAccountMenu();
+
+        tracker = InstallTracker(configurationPath);
+        setUpTray();
 
         logFadeTimer = cpp_new!QTimer(this);
         QObject.connect(logFadeTimer.signal!"timeout", this.slot!"stepLogFade");
@@ -326,8 +346,35 @@ class MainWindow: QMainWindow {
         reports the edges and the caption, which is what keeps native
         resizing, snapping and double-click-to-maximise working.
     +/
+    /++
+        Closing hides the window instead of quitting.
+
+        Renewal only happens while the process lives, so the close button
+        parks it in the tray. Exit, in the tray menu, is the real way out.
+    +/
+    override extern(C++) void closeEvent(QCloseEvent event) {
+        if (quitting) {
+            removeTrayIcon();
+            super.closeEvent(event);
+            return;
+        }
+
+        event.ignore();
+        hide();
+        showTrayMessage("Sideloader",
+            "Still running, so installs can be renewed. Exit from here to stop.");
+    }
+
     override extern(C++) bool nativeEvent(ref const(QByteArray) eventType, void* message, cpp_long* result) {
         version (Windows) {
+            // Tray clicks arrive here as a user-defined message, since the
+            // icon was registered against this window's handle.
+            if (isTrayMenuRequest(message)) {
+                showTrayMenu();
+                *result = 0;
+                return true;
+            }
+
             if (handleFrameRemoval(message, result))
                 return true;
 
@@ -350,6 +397,161 @@ class MainWindow: QMainWindow {
         }
 
         return super.nativeEvent(eventType, message, result);
+    }
+
+    /++
+        Notification-area icon and its menu.
+
+        The icon is native, the menu is a QMenu so it follows the application
+        stylesheet. Rebuilt on each open, since it shows live expiry counts.
+    +/
+    private void setUpTray() {
+        trayMenu = cpp_new!QMenu(this);
+        installTrayIcon(cast(size_t) this.winId(), "Sideloader");
+
+        // Hourly is plenty for a seven-day window, and cheap: the check only
+        // touches the tracked list unless something is actually due.
+        renewalTimer = cpp_new!QTimer(this);
+        QObject.connect(renewalTimer.signal!"timeout", this.slot!"checkRenewals");
+        renewalTimer.start(60 * 60 * 1000);
+    }
+
+    private void showTrayMenu() {
+        trayMenu.clear();
+
+        auto installsMenu = trayMenu.addMenu(*cpp_new!QString("Current Installs"));
+        auto installs = tracker.installs();
+
+        if (installs.length == 0) {
+            auto empty = installsMenu.addAction(*cpp_new!QString("Nothing installed yet"));
+            empty.setEnabled(false);
+        } else {
+            foreach (entry; installs) {
+                int days = entry.daysRemaining();
+                string label = days > 0
+                    ? format!"%s  —  %d day%s left"(entry.bundleName, days, days == 1 ? "" : "s")
+                    : format!"%s  —  expired"(entry.bundleName);
+
+                auto item = installsMenu.addAction(*cpp_new!QString(label));
+                // Informational: renewal is driven by Refresh All, which needs
+                // the device present anyway.
+                item.setEnabled(false);
+            }
+        }
+
+        auto refresh = trayMenu.addAction(*cpp_new!QString("Refresh All Manually"));
+        QObject.connect(refresh.signal!"triggered", this.slot!"refreshAllInstalls");
+        refresh.setEnabled(installs.length > 0);
+
+        trayMenu.addSeparator();
+
+        auto show = trayMenu.addAction(*cpp_new!QString("Open Sideloader"));
+        QObject.connect(show.signal!"triggered", this.slot!"showFromTray");
+
+        auto boot = trayMenu.addAction(*cpp_new!QString("Automatically Launch on System Boot"));
+        boot.setCheckable(true);
+        boot.setChecked(isAutostartEnabled());
+        QObject.connect(boot.signal!"triggered", this.slot!"toggleAutostart");
+
+        trayMenu.addSeparator();
+
+        auto quit = trayMenu.addAction(*cpp_new!QString("Exit"));
+        QObject.connect(quit.signal!"triggered", this.slot!"quitApplication");
+
+        int x, y;
+        trayCursorPosition(x, y);
+        trayMenu.popup(*cpp_new!QPoint(x, y));
+    }
+
+    @QSlot
+    final void showFromTray() {
+        showNormal();
+        raise();
+        activateWindow();
+    }
+
+    @QSlot
+    final void toggleAutostart() {
+        bool enable = !isAutostartEnabled();
+        string exe = QCoreApplication.applicationFilePath().toConstWString().to!string();
+
+        if (!setAutostartEnabled(enable, exe))
+            getLogger().warn("Could not change the autostart entry.");
+    }
+
+    @QSlot
+    final void quitApplication() {
+        quitting = true;
+        removeTrayIcon();
+        QCoreApplication.quit();
+    }
+
+    /++
+        Re-signs everything tracked for the selected device.
+
+        Needs a device and a session: renewal is the same portal round-trip as
+        a first install, minus choosing a file.
+    +/
+    @QSlot
+    final void refreshAllInstalls() {
+        auto log = getLogger();
+
+        if (!selectedDevice) {
+            showTrayMessage("Sideloader", "Connect and select a device first.");
+            return;
+        }
+
+        if (!developerSession) {
+            showFromTray();
+            signIn();
+            if (!developerSession)
+                return;
+        }
+
+        Application[] apps;
+        foreach (entry; tracker.installs()) {
+            if (!entry.renewable()) {
+                log.warnF!"Cannot renew %s: %s is gone."(entry.bundleName, entry.ipaPath);
+                continue;
+            }
+
+            try {
+                apps ~= new Application(entry.ipaPath);
+            } catch (Exception ex) {
+                log.warnF!"Cannot reopen %s: %s"(entry.ipaPath, ex.msg);
+            }
+        }
+
+        if (apps.length == 0) {
+            showTrayMessage("Sideloader", "Nothing renewable: the .ipa files are missing.");
+            return;
+        }
+
+        // The tracker is refreshed per package by onInstallFinished, so only
+        // the last one would be recorded. Renewal keeps the existing entries
+        // and just resets their dates.
+        foreach (entry; tracker.installs())
+            if (entry.renewable())
+                tracker.record(entry.bundleIdentifier, entry.bundleName,
+                    entry.ipaPath, entry.deviceUdid);
+
+        pendingBundleId = null;
+        showFromTray();
+        runSideload(apps, selectedDevice);
+    }
+
+    /// Renews on its own once a signature is nearly out, which is the whole
+    /// point of staying in the tray.
+    @QSlot
+    final void checkRenewals() {
+        foreach (entry; tracker.installs()) {
+            if (entry.needsRenewal() && entry.renewable()) {
+                showTrayMessage("Sideloader",
+                    format!"%s expires soon, renewing."(entry.bundleName));
+                refreshAllInstalls();
+                return;
+            }
+        }
     }
 
     /// Loads a Lucide icon deployed next to the executable.
@@ -618,21 +820,43 @@ class MainWindow: QMainWindow {
             updateAccountMenu();
         }
 
+        pendingBundleId = selectedApplication.bundleIdentifier();
+        pendingBundleName = selectedApplication.appInfo["CFBundleName"].str().native();
+        pendingIpaPath = ui.ipaLine.text().toConstWString().to!string();
+        pendingUdid = selectedDevice.udid();
+
+        runSideload([selectedApplication], selectedDevice);
+    }
+
+    /++
+        Signs and installs packages on a worker thread.
+
+        Shared by a manual install and by renewal, which is the same operation
+        repeated over the tracked packages. Sequential on purpose: the portal
+        and the device both dislike concurrent sessions.
+    +/
+    private void runSideload(Application[] apps, iDevice device) {
         sideloadProcedureTriggered(false);
         clearLog();
         reportProgress(0.0, "Starting");
 
-        auto app = selectedApplication;
-        auto device = selectedDevice;
         auto session = developerSession;
         auto path = configurationPath;
 
         new Thread({
             try {
-                sideloadFull(path, device, session, app,
-                    (double progress, string action) {
-                        installProgressed(progress, *cpp_new!QString(action));
-                    });
+                foreach (index, app; apps) {
+                    // Each package gets its slice of the bar, so a renewal of
+                    // several apps still reads as one run.
+                    double base = cast(double) index / apps.length;
+                    double slice = 1.0 / apps.length;
+
+                    sideloadFull(path, device, session, app,
+                        (double progress, string action) {
+                            installProgressed(base + progress * slice,
+                                *cpp_new!QString(action));
+                        });
+                }
                 installFinished(true, *cpp_new!QString("Installed"));
             } catch (Exception ex) {
                 getLogger().errorF!"Install failed: %s"(ex);
@@ -732,6 +956,11 @@ class MainWindow: QMainWindow {
     @QSlot
     void onInstallFinished(bool succeeded, ref const(QString) message) {
         sideloadProcedureTriggered(true);
+
+        if (succeeded && pendingBundleId.length) {
+            tracker.record(pendingBundleId, pendingBundleName, pendingIpaPath, pendingUdid);
+            pendingBundleId = null;
+        }
 
         if (succeeded) {
             ui.installStageLabel.setText(*cpp_new!QString("Done"));

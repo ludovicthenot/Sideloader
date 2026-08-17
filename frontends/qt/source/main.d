@@ -88,7 +88,16 @@ int main(string[] args) {
 
     DependenciesWindow.ensureDeps(configurationPath, (device, adi) {
         auto w = new MainWindow(configurationPath, device, adi);
-        w.show();
+
+        // --tray is what the autostart entry passes: start in the
+        // notification area, without a window flashing up at sign-in.
+        import std.algorithm : canFind;
+        bool startHidden = args.canFind("--tray");
+
+        if (startHidden)
+            w.hide();
+        else
+            w.show();
         // Re-applied after show(): Qt can recreate the native window while
         // realising it, which discards the DWM attribute set in the
         // constructor and leaves a white title bar.
