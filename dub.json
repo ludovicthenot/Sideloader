@@ -35,7 +35,6 @@
 
     "subPackages": [
         "frontends/cli",
-        "frontends/dlangui",
         "frontends/gtk",
         "frontends/qt",
         "frontends/swiftui"
