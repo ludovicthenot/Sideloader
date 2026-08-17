@@ -14,11 +14,13 @@ import slf4d.provider;
 
 import dlangui;
 import dlangui.core.logger;
+import dlangui.graphics.resources;
 
 import app;
 import constants;
 import utils;
 
+import ui.chrome;
 import ui.mainframe;
 import ui.dependenciesframe;
 
@@ -71,11 +73,17 @@ extern (C) int UIAppMain() {
 
     getLogger().info("Using DlangUI frontend.");
 
+    // Theme maison (frontends/dlangui/resources/). A faire avant la creation
+    // de la premiere fenetre, sinon elle nait avec theme_default.
+    embeddedResourceList.addResources(embedResourcesFromList!("resources.list")());
+    Platform.instance.uiTheme = "theme_sideloader";
+
     DependenciesFrame.ensureDeps(configurationPath, {
-        Window w = Platform.instance.createWindow(applicationName, null, WindowFlag.ExpandSize | WindowFlag.Resizable, 350, 400);
+        Window w = Platform.instance.createWindow(applicationName, null, WindowFlag.ExpandSize | WindowFlag.Resizable, 560, 620);
         MainFrame frame = new MainFrame();
         w.mainWidget = frame;
         w.windowOrContentResizeMode = WindowOrContentResizeMode.resizeWindow;
+        applyDarkTitleBar(w);
         w.show();
 
         auto log = getLogger();

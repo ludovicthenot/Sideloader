@@ -12,6 +12,8 @@
         "../common/windows/"
     ],
 
+    "stringImportPaths": ["resources/"],
+
     "dependencies": {
         "sideloader": { "path": "../../" },
         "dlangui": "~>0.10"

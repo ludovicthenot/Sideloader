@@ -13,7 +13,9 @@ import provision;
 import server.appleaccount;
 import server.developersession;
 
+import ui.chrome;
 import ui.tfaframe;
+import ui.widgets;
 
 class LoginFrame: VerticalLayout {
     EditLine usernameLine;
@@ -22,24 +24,26 @@ class LoginFrame: VerticalLayout {
     Button button;
 
     this(Device device, ADI adi, void delegate(DeveloperSession) onCompletion) {
-        auto errorLabel = new TextWidget("LOGIN_ERROR", ""d);
-        errorLabel.alignment = Align.Center;
-        errorLabel.textColor = Color.firebrick;
-        errorLabel.visibility = Visibility.Invisible;
+        styleId = "SL_PAGE";
+        minWidth = 380;
+
+        addChild(caption("APPLE ACCOUNT"d));
+
+        auto errorLabel = errorText("LOGIN_ERROR");
         addChild(errorLabel);
 
         auto credentialsTable = new TableLayout("CREDS");
         credentialsTable.layoutWidth = FILL_PARENT;
         credentialsTable.colCount = 2;
         {
-            credentialsTable.addChild(new TextWidget(null, "Apple ID:"d));
+            credentialsTable.addChild(fieldLabel("Apple ID"d));
 
             usernameLine = new EditLine("USERNAME", ""d);
             usernameLine.alignment = Align.VCenter;
             usernameLine.layoutWidth = FILL_PARENT;
             credentialsTable.addChild(usernameLine);
 
-            credentialsTable.addChild(new TextWidget(null, "Password:"d));
+            credentialsTable.addChild(fieldLabel("Password"d));
 
             passwordLine = new EditLine("PASSWORD", ""d);
             passwordLine.passwordChar = '\u2022';
@@ -49,16 +53,16 @@ class LoginFrame: VerticalLayout {
         }
         addChild(credentialsTable);
 
-        auto onlyToAppleLabel = new TextWidget(null, "your credentials are only sent to Apple"d);
-        onlyToAppleLabel.alignment = Align.Center;
-        addChild(onlyToAppleLabel);
+        addChild(hint("Your credentials are only ever sent to Apple."d));
+
+        addChild(separator());
 
         auto loginBox = new HorizontalLayout();
         loginBox.layoutWidth = FILL_PARENT;
         {
             loginBox.addChild(new HSpacer());
 
-            button = new Button(null, "Log-in"d);
+            button = primaryButton(null, "Log in"d);
             button.click = (_) {
                 string username = usernameLine.text().to!string();
                 string password = passwordLine.text().to!string();
@@ -85,6 +89,7 @@ class LoginFrame: VerticalLayout {
                             errorLabel.executeInUiThread({
                                 errorLabel.text = format!"%s (%d)"d(error.description, error);
                                 errorLabel.visibility = Visibility.Visible;
+                                errorLabel.requestLayout();
 
                                 setBusy(false);
                             });
@@ -115,10 +120,12 @@ class LoginFrame: VerticalLayout {
     }
 
     static void login(Device device, ADI adi, Window parentWindow, void delegate(DeveloperSession) onCompletion) {
-        auto loginWindow = Platform.instance.createWindow("Log-in to Apple", parentWindow, WindowFlag.ExpandSize, 1, 1);
+        auto loginWindow = Platform.instance.createWindow(
+            "Log-in to Apple", parentWindow, WindowFlag.Resizable, 460, 320);
         auto frame = new LoginFrame(device, adi, onCompletion);
         loginWindow.mainWidget = frame;
-        loginWindow.windowOrContentResizeMode = WindowOrContentResizeMode.resizeWindow;
+        loginWindow.windowOrContentResizeMode = WindowOrContentResizeMode.shrinkWidgets;
+        applyDarkTitleBar(loginWindow);
         loginWindow.show();
         frame.setBusy(false);
     }

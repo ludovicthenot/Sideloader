@@ -11,7 +11,6 @@ import std.format;
 import slf4d;
 
 import dlangui;
-import dlangui.dialogs.filedlg;
 
 import plist;
 
@@ -21,19 +20,22 @@ import constants;
 import sideload;
 import tools;
 
+import ui.filedialog;
 import ui.loginframe;
 import ui.tfaframe;
 import ui.utils;
+import ui.widgets;
 
 class MainFrame: VerticalLayout/+, MenuItemClickHandler, MenuItemActionHandler+/ {
     string[] devices;
     ComboBox deviceBox;
     FrameLayout actionsFrame;
     VerticalLayout toolsFrame;
+    TextWidget toolsEmptyLabel;
 
-    EditLine deviceNameLine;
-    EditLine modelLine;
-    EditLine versionLine;
+    TextWidget deviceNameLine;
+    TextWidget modelLine;
+    TextWidget versionLine;
 
     Application app;
 
@@ -101,10 +103,11 @@ class MainFrame: VerticalLayout/+, MenuItemClickHandler, MenuItemActionHandler+/
         }
         addChild(new MainMenu(menuItems));
 
-        auto body = new VerticalLayout();
-        body.layoutWidth = FILL_PARENT;
-        body.layoutHeight = FILL_PARENT;
+        auto page = new VerticalLayout();
+        page.styleId = "SL_PAGE";
         {
+            page.addChild(caption("DEVICE"d));
+
             deviceBox = new ComboBox();
             deviceBox.itemClick = (_, index) {
                 string udid = devices[index];
@@ -126,167 +129,151 @@ class MainFrame: VerticalLayout/+, MenuItemClickHandler, MenuItemActionHandler+/
                 return true;
             };
             deviceBox.layoutWidth = FILL_PARENT;
-            body.addChild(deviceBox);
+            page.addChild(deviceBox);
 
             actionsFrame = new FrameLayout();
             actionsFrame.layoutWidth = FILL_PARENT;
             actionsFrame.layoutHeight = FILL_PARENT;
-            actionsFrame.visibility = Visibility.Invisible;
             {
-                auto trustLabel = new TextWidget("TRUST", "Please unlock your device and trust the computer"d);
-                trustLabel.alignment = Align.Center;
-                actionsFrame.addChild(trustLabel);
+                // Les trois etats "rien a faire" sont des messages plein cadre
+                // plutot qu'un panneau vide : l'utilisateur sait quoi faire.
+                actionsFrame.addChild(emptyState("NODEVICE",
+                    "No device detected.\n\nConnect your iPhone or iPad over USB, unlock it,\nthen use Devices ▸ Refresh device list."d));
+
+                actionsFrame.addChild(emptyState("PICK",
+                    "Select a device above to continue."d));
+
+                actionsFrame.addChild(emptyState("TRUST",
+                    "This device is locked.\n\nUnlock it and tap “Trust” on the prompt,\nthen select it again."d));
 
                 auto actions = new TabWidget("ACTIONS");
                 actions.layoutWidth = FILL_PARENT;
                 actions.layoutHeight = FILL_PARENT;
                 {
-                    auto deviceInfoTable = new TableLayout("INFO");
-                    deviceInfoTable.layoutWidth = FILL_PARENT;
-                    deviceInfoTable.colCount = 2;
-                    {
-                        deviceInfoTable.addChild(new TextWidget(null, "Device name:"d));
-
-                        deviceNameLine = new EditLine(null, ""d);
-                        deviceNameLine.alignment = Align.VCenter;
-                        deviceNameLine.enabled = false;
-                        deviceNameLine.layoutWidth = FILL_PARENT;
-                        deviceInfoTable.addChild(deviceNameLine);
-
-                        deviceInfoTable.addChild(new TextWidget(null, "Device model:"d));
-
-                        modelLine = new EditLine(null, ""d);
-                        modelLine.alignment = Align.VCenter;
-                        modelLine.enabled = false;
-                        modelLine.layoutWidth = FILL_PARENT;
-                        deviceInfoTable.addChild(modelLine);
-
-                        deviceInfoTable.addChild(new TextWidget(null, "iOS version:"d));
-
-                        versionLine = new EditLine(null, ""d);
-                        versionLine.alignment = Align.VCenter;
-                        versionLine.enabled = false;
-                        versionLine.layoutWidth = FILL_PARENT;
-                        deviceInfoTable.addChild(versionLine);
-                    }
-                    actions.addTab(deviceInfoTable, "Informations"d);
-
-                    auto installFrame = new VerticalLayout("INSTALL");
-                    installFrame.layoutWidth = FILL_PARENT;
-                    installFrame.layoutHeight = FILL_PARENT;
-                    {
-                        Button installButton;
-
-                        auto fileSelectionLayout = new HorizontalLayout();
-                        fileSelectionLayout.layoutWidth = FILL_PARENT;
-                        {
-                            auto editLine = new EditLine();
-                            editLine.alignment = Align.VCenter;
-                            editLine.enabled = false;
-                            editLine.layoutWidth = FILL_PARENT;
-                            editLine.text = "Please select an IPA";
-                            fileSelectionLayout.addChild(editLine);
-
-                            auto selectFileButton = new Button(null, "..."d);
-                            selectFileButton.click = (source) {
-                                FileDialog dlg = new FileDialog(UIString.fromRaw("Select IPA"d), window());
-                                dlg.addFilter(FileFilterEntry(UIString.fromRaw("iOS application package (*.ipa)"d), "*.ipa"));
-                                dlg.dialogResult = (_, result) {
-                                    if (result.id != ACTION_OPEN.id) return;
-
-                                    string selectedPath = dlg.filename();
-                                    editLine.text = selectedPath.to!dstring();
-                                    path = selectedPath;
-                                };
-                                dlg.show();
-                                return true;
-                            };
-                            fileSelectionLayout.addChild(selectFileButton);
-                        }
-                        installFrame.addChild(fileSelectionLayout);
-
-                        auto errorLabel = new TextWidget("IPA_ERROR", "Please select an IPA"d);
-                        errorLabel.alignment = Align.Center;
-                        errorLabel.textColor = Color.firebrick;
-                        errorLabel.visibility = Visibility.Invisible;
-                        installFrame.addChild(errorLabel);
-
-                        auto appInfoTable = new TableLayout();
-                        appInfoTable.layoutWidth = FILL_PARENT;
-                        appInfoTable.colCount = 2;
-                        {
-                            appInfoTable.addChild(new TextWidget(null, "Bundle name:"d));
-
-                            auto nameLine = new EditLine(null, ""d);
-                            nameLine.alignment = Align.VCenter;
-                            nameLine.enabled = false;
-                            nameLine.layoutWidth = FILL_PARENT;
-                            appInfoTable.addChild(nameLine);
-
-                            appInfoTable.addChild(new TextWidget(null, "Bundle identifier:"d));
-
-                            auto identifierLine = new EditLine(null, ""d);
-                            identifierLine.alignment = Align.VCenter;
-                            identifierLine.enabled = false;
-                            identifierLine.layoutWidth = FILL_PARENT;
-                            appInfoTable.addChild(identifierLine);
-
-                            path.connect((newPath) {
-                                try {
-                                    app = new Application(newPath);
-                                    nameLine.text = app.appInfo["CFBundleName"].str().native().to!dstring();
-                                    identifierLine.text = app.appInfo["CFBundleIdentifier"].str().native().to!dstring();
-                                    errorLabel.visibility = Visibility.Invisible;
-                                    installButton.enabled = true;
-                                } catch (Exception ex) {
-                                    log.errorF!"Cannot load the app: %s"(ex);
-                                    nameLine.text = ""d;
-                                    identifierLine.text = ""d;
-                                    errorLabel.text = format!"invalid app: %s"d(ex.msg);
-                                    errorLabel.visibility = Visibility.Visible;
-                                    installButton.enabled = false;
-                                }
-                            });
-                        }
-                        installFrame.addChild(appInfoTable);
-
-                        installFrame.addChild(new VSpacer());
-
-                        installButton = new Button(new Action(101, "Install"d));
-                        installButton.layoutWidth = FILL_PARENT;
-                        installButton.layoutHeight = WRAP_CONTENT;
-                        installButton.enabled = false;
-                        installButton.click = (_) {
-                            // TODO
-                            LoginFrame.login(null, null, window(), (_) {});
-                            return true;
-                        };
-                        installFrame.addChild(installButton);
-
-                        auto installProgressBar = new ProgressBarWidget();
-                        installProgressBar.layoutWidth = FILL_PARENT;
-                        installProgressBar.layoutHeight = WRAP_CONTENT;
-                        installFrame.addChild(installProgressBar);
-
-                        auto installProgressLabel = new TextWidget();
-                        installProgressLabel.text = "Idle"d;
-                        installProgressLabel.alignment = Align.Center;
-                        installProgressLabel.layoutWidth = FILL_PARENT;
-                        installProgressLabel.layoutHeight = WRAP_CONTENT;
-                        installFrame.addChild(installProgressLabel);
-                    }
-                    actions.addTab(installFrame, "Sideload"d);
-
-                    toolsFrame = new VerticalLayout("TOOLS");
-                    toolsFrame.layoutWidth = FILL_PARENT;
-                    toolsFrame.layoutHeight = WRAP_CONTENT;
-                    actions.addTab(toolsFrame, "Additional tools"d);
+                    actions.addTab(buildInfoTab(), "Informations"d);
+                    actions.addTab(buildSideloadTab(log), "Sideload"d);
+                    actions.addTab(buildToolsTab(), "Additional tools"d);
                 }
                 actionsFrame.addChild(actions);
             }
-            body.addChild(actionsFrame);
+            actionsFrame.showChild("NODEVICE");
+            page.addChild(actionsFrame);
         }
-        addChild(body);
+        addChild(page);
+    }
+
+    private Widget buildInfoTab() {
+        auto pane = new VerticalLayout("INFO");
+        pane.layoutWidth = FILL_PARENT;
+        pane.layoutHeight = FILL_PARENT;
+
+        pane.addChild(caption("CONNECTED DEVICE"d));
+
+        auto table = fieldTable();
+        deviceNameLine = table.addField("Name"d);
+        modelLine = table.addField("Model"d);
+        versionLine = table.addField("iOS version"d);
+        pane.addChild(table);
+
+        pane.addChild(new VSpacer());
+        return pane;
+    }
+
+    private Widget buildSideloadTab(Logger log) {
+        auto pane = new VerticalLayout("INSTALL");
+        pane.layoutWidth = FILL_PARENT;
+        pane.layoutHeight = FILL_PARENT;
+
+        Button installButton;
+
+        pane.addChild(caption("APPLICATION"d));
+
+        auto fileRow = new HorizontalLayout();
+        fileRow.layoutWidth = FILL_PARENT;
+        {
+            auto pathLabel = fieldValue("IPA_PATH", "No package selected"d);
+            fileRow.addChild(pathLabel);
+
+            auto selectFileButton = new Button(null, "Choose IPA…"d);
+            selectFileButton.click = (source) {
+                openFile(window(), "Select IPA"d, "iOS application package (*.ipa)"d, "*.ipa",
+                    (string selectedPath) {
+                        pathLabel.text = selectedPath.to!dstring();
+                        path = selectedPath;
+                    });
+                return true;
+            };
+            fileRow.addChild(selectFileButton);
+        }
+        pane.addChild(fileRow);
+
+        auto errorLabel = errorText("IPA_ERROR");
+        pane.addChild(errorLabel);
+
+        auto appInfoTable = fieldTable();
+        auto nameLine = appInfoTable.addField("Bundle name"d);
+        auto identifierLine = appInfoTable.addField("Bundle identifier"d);
+        pane.addChild(appInfoTable);
+
+        path.connect((newPath) {
+            try {
+                app = new Application(newPath);
+                nameLine.text = app.appInfo["CFBundleName"].str().native().to!dstring();
+                identifierLine.text = app.appInfo["CFBundleIdentifier"].str().native().to!dstring();
+                errorLabel.visibility = Visibility.Gone;
+                installButton.enabled = true;
+            } catch (Exception ex) {
+                log.errorF!"Cannot load the app: %s"(ex);
+                nameLine.text = ""d;
+                identifierLine.text = ""d;
+                errorLabel.text = format!"Invalid package: %s"d(ex.msg);
+                errorLabel.visibility = Visibility.Visible;
+                installButton.enabled = false;
+            }
+        });
+
+        pane.addChild(new VSpacer());
+        pane.addChild(separator());
+
+        installButton = primaryButton(new Action(101, "Install"d));
+        installButton.layoutWidth = FILL_PARENT;
+        installButton.layoutHeight = WRAP_CONTENT;
+        installButton.enabled = false;
+        installButton.click = (_) {
+            // TODO
+            LoginFrame.login(null, null, window(), (_) {});
+            return true;
+        };
+        pane.addChild(installButton);
+
+        auto installProgressBar = new ProgressBarWidget();
+        installProgressBar.layoutWidth = FILL_PARENT;
+        installProgressBar.layoutHeight = WRAP_CONTENT;
+        pane.addChild(installProgressBar);
+
+        pane.addChild(hint("Idle"d));
+        return pane;
+    }
+
+    private Widget buildToolsTab() {
+        auto pane = new VerticalLayout("TOOLS_PAGE");
+        pane.layoutWidth = FILL_PARENT;
+        pane.layoutHeight = FILL_PARENT;
+
+        pane.addChild(caption("TOOLS"d));
+
+        toolsEmptyLabel = new TextWidget(null, "No tool available for this device."d);
+        toolsEmptyLabel.styleId = "SL_HINT";
+        toolsEmptyLabel.layoutWidth = FILL_PARENT;
+        pane.addChild(toolsEmptyLabel);
+
+        toolsFrame = new VerticalLayout("TOOLS");
+        toolsFrame.layoutWidth = FILL_PARENT;
+        toolsFrame.layoutHeight = WRAP_CONTENT;
+        pane.addChild(toolsFrame);
+
+        pane.addChild(new VSpacer());
+        return pane;
     }
 
     void refreshDeviceList() {
@@ -296,9 +283,11 @@ class MainFrame: VerticalLayout/+, MenuItemClickHandler, MenuItemActionHandler+/
             deviceBox.items = uiDevices;
 
             if (uiDevices.length == 0) {
-                actionsFrame.visibility = Visibility.Invisible;
+                deviceBox.enabled = false;
+                actionsFrame.showChild("NODEVICE");
             } else {
-                actionsFrame.visibility = Visibility.Visible;
+                deviceBox.enabled = true;
+                actionsFrame.showChild("PICK");
             }
         });
 
@@ -327,7 +316,9 @@ class MainFrame: VerticalLayout/+, MenuItemClickHandler, MenuItemActionHandler+/
     void setUpTools(iDevice device) {
         toolsFrame.executeInUiThread({
             toolsFrame.removeAllChildren();
-            foreach (tool; toolList(device)) {
+            auto tools = toolList(device);
+            toolsEmptyLabel.visibility = tools.length == 0 ? Visibility.Visible : Visibility.Gone;
+            foreach (tool; tools) {
                 auto toolButton = new Button(null, tool.name().to!dstring());
                 toolButton.click = (source) {
                     new Thread({
