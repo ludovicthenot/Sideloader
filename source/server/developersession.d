@@ -74,12 +74,50 @@ auto unwrap(T)(T response) {
     );
 }
 
+/++
+    A session reduced to what is needed to rebuild it.
+
+    Deliberately holds no password: Apple hands back an `adsid` and a token
+    at sign-in, and those are enough to keep talking to the developer portal.
+    Persisting them means the password never has to be stored anywhere.
++/
+struct SavedDeveloperSession {
+    string appleId;
+    string adsid;
+    string token;
+    /// Apple's service directory, handed out at sign-in.
+    string[string] urlBag;
+}
+
 class DeveloperSession {
     AppleAccount appleAccount;
     alias appleAccount this;
 
     private this(AppleAccount appleAccount) {
         this.appleAccount = appleAccount;
+    }
+
+    /// Snapshot of the session, to hand to a secret store.
+    SavedDeveloperSession save() {
+        return SavedDeveloperSession(
+            appleAccount.appleId(),
+            appleAccount.sessionAdsid(),
+            appleAccount.sessionToken(),
+            appleAccount.urls,
+        );
+    }
+
+    /++
+        Rebuilds a session from a snapshot, without contacting Apple.
+
+        Nothing is validated here: an expired or revoked token only shows up
+        on the first request, so callers should be ready to fall back to a
+        fresh sign-in.
+    +/
+    static DeveloperSession restore(Device device, ADI adi, SavedDeveloperSession saved) {
+        return new DeveloperSession(new AppleAccount(
+            device, adi, XcodeApplicationInformation, saved.urlBag,
+            saved.appleId, saved.adsid, saved.token));
     }
 
     static DeveloperLoginResponse login(Device device, ADI adi, string appleId, string password, TFAHandlerDelegate tfaHandler) {
