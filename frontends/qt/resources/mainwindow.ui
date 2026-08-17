@@ -488,6 +488,8 @@
   <widget class="QMenuBar" name="menubar">
    <widget class="QMenu" name="menuFile">
     <property name="title"><string>Account</string></property>
+    <addaction name="actionAccountStatus"/>
+    <addaction name="separator"/>
     <addaction name="actionLog_in"/>
     <addaction name="actionSign_out"/>
     <addaction name="separator"/>
@@ -507,10 +509,14 @@
    <addaction name="menuDevices"/>
    <addaction name="menuHelp"/>
   </widget>
-  <action name="actionLog_in">
+  <!-- Disabled on purpose: this entry is a status line, not a command. -->
+  <action name="actionAccountStatus">
    <property name="enabled"><bool>false</bool></property>
-   <property name="text"><string>Log-in</string></property>
-   <property name="toolTip"><string>Not implemented yet. Sorry.</string></property>
+   <property name="text"><string>Not signed in</string></property>
+  </action>
+  <action name="actionLog_in">
+   <property name="text"><string>Sign in...</string></property>
+   <property name="toolTip"><string>Sign in to Apple now, without starting an install</string></property>
   </action>
   <action name="actionSign_out">
    <property name="text"><string>Sign out</string></property>

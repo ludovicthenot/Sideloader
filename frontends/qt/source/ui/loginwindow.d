@@ -52,7 +52,10 @@ DeveloperSession promptLogin(QWidget parent, Device device, ADI adi) {
     dialog.setWindowTitle(*cpp_new!QString("Sign in to Apple"));
     dialog.setMinimumWidth(400);
     // The dialog is a separate native window, so it needs the dark title bar
-    // asked for on its own handle.
+    // asked for on its own handle. Flags first: changing them recreates the
+    // native window, which would discard the attribute.
+    dialog.setWindowFlags(WindowType.Dialog | WindowType.WindowTitleHint
+        | WindowType.WindowCloseButtonHint);
     applyDarkTitleBar(cast(size_t) dialog.winId());
 
     auto layout = cpp_new!QVBoxLayout(dialog);

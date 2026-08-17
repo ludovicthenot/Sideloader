@@ -62,6 +62,7 @@ import utils;
 
 import ui.chrome;
 import ui.loginwindow;
+import ui.managewindow;
 import ui.sessionstore;
 import ui.utils;
 
@@ -115,6 +116,7 @@ class MainWindow: QMainWindow {
 
         setUpWindowChrome();
         setUpIcons();
+        updateAccountMenu();
 
         logFadeTimer = cpp_new!QTimer(this);
         QObject.connect(logFadeTimer.signal!"timeout", this.slot!"stepLogFade");
@@ -152,6 +154,9 @@ class MainWindow: QMainWindow {
         );
         QObject.connect(ui.installButton.signal!"clicked", this.slot!"startInstall");
         QObject.connect(ui.actionSign_out.signal!"triggered", this.slot!"signOut");
+        QObject.connect(ui.actionLog_in.signal!"triggered", this.slot!"signIn");
+        QObject.connect(ui.actionManage_App_IDs.signal!"triggered", this.slot!"manageAppIds");
+        QObject.connect(ui.actionManage_certificates.signal!"triggered", this.slot!"manageCertificates");
 
         // Queued: the progress callback fires on the worker thread, and
         // widgets may only be touched from the UI thread.
@@ -224,13 +229,57 @@ class MainWindow: QMainWindow {
         QObject.connect(ui.closeButton.signal!"clicked", this.slot!"closeWindow");
     }
 
+    /++
+        Reflects the account state in the menu.
+
+        Without this the menu gave no clue whether a session existed, and
+        "Sign out" sat next to a permanently greyed "Log-in" whatever the
+        state was.
+    +/
+    private void updateAccountMenu() {
+        bool signedIn = developerSession !is null;
+
+        ui.actionAccountStatus.setText(*cpp_new!QString(signedIn
+            ? format!"Signed in as %s"(developerSession.appleId())
+            : "Not signed in"));
+
+        ui.actionLog_in.setEnabled(!signedIn);
+        ui.actionSign_out.setEnabled(signedIn);
+        ui.actionManage_App_IDs.setEnabled(signedIn);
+        ui.actionManage_certificates.setEnabled(signedIn);
+    }
+
+    /// Signs in outside of an install, so the account can be set up first.
+    @QSlot
+    final void signIn() {
+        if (developerSession)
+            return;
+
+        developerSession = promptLogin(this, provisioningDevice, adi);
+        if (developerSession)
+            rememberSession(developerSession);
+
+        updateAccountMenu();
+    }
+
     /// Drops the session in memory and in the store, so the next install
     /// asks to sign in again. The way out of an expired or wrong token.
     @QSlot
     final void signOut() {
         developerSession = null;
         forgetSession();
+        updateAccountMenu();
         getLogger().info("Signed out; the saved session has been removed.");
+    }
+
+    @QSlot
+    final void manageAppIds() {
+        showManageDialog(this, developerSession, ManagedKind.appIds);
+    }
+
+    @QSlot
+    final void manageCertificates() {
+        showManageDialog(this, developerSession, ManagedKind.certificates);
     }
 
     @QSlot
@@ -566,6 +615,7 @@ class MainWindow: QMainWindow {
                 return;
             }
             rememberSession(developerSession);
+            updateAccountMenu();
         }
 
         sideloadProcedureTriggered(false);

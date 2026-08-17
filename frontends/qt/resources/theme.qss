@@ -449,3 +449,50 @@ QToolTip {
 QMessageBox {
     background-color: #26262A;
 }
+
+/* ================================================================ lists */
+
+/* QListWidget is a scroll area: without this it keeps the palette's default
+   light viewport, which left grey text on white. */
+QListWidget,
+QAbstractItemView {
+    background-color: #1B1B1E;
+    alternate-background-color: #1B1B1E;
+    border: 1px solid #35353A;
+    border-radius: 10px;
+    padding: 4px;
+    outline: none;
+    color: #F2F2F4;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    border-radius: 7px;
+    color: #F2F2F4;
+}
+
+QListWidget::item:hover {
+    background-color: #2A2A2E;
+}
+
+QListWidget::item:selected {
+    background-color: #0A84FF;
+    color: #FFFFFF;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #3A3A3E;
+    border-radius: 5px;
+    min-width: 28px;
+    margin: 2px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #4A4A50;
+}
