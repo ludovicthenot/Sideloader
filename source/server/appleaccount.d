@@ -83,6 +83,17 @@ package class AppleAccount {
         return appleIdentifier;
     }
 
+    // `private` in D is module-private, so server.developersession cannot
+    // reach the fields it needs to persist a session. These are `package` so
+    // only the server modules can read the credentials back out.
+    package string sessionAdsid() {
+        return adsid;
+    }
+
+    package string sessionToken() {
+        return token;
+    }
+
     package this(Device device, ADI adi, ApplicationInformation appInfo, string[string] urlBag, string appleId, string adsid, string token) {
         this.device = device;
         this.adi = adi;
