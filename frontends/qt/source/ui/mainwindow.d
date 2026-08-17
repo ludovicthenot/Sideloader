@@ -650,6 +650,15 @@ class MainWindow: QMainWindow {
         }
     }
 
+    /// How the device is reachable, as libimobiledevice reports it.
+    private string connectionLabel(string udid) {
+        foreach (info; iDevice.deviceList()) {
+            if (info.udid == udid)
+                return info.connType == iDeviceConnectionType.network ? "Wi-Fi" : "USB";
+        }
+        return "unknown";
+    }
+
     @QSlot
     final void refreshView(int index) {
         if (index == -1) {
@@ -676,9 +685,12 @@ class MainWindow: QMainWindow {
 
         selectedDevice = new iDevice(deviceUdid);
 
+        // The transport was hardcoded as USB, which is wrong for a device
+        // paired over the network. deviceList carries the real one.
         // ASCII only: dqt passes literals straight to QString without
         // decoding UTF-8, so anything else comes out as mojibake.
-        ui.deviceSubtitle.setText(*cpp_new!QString(format!"%s (USB)"(deviceUdid)));
+        ui.deviceSubtitle.setText(*cpp_new!QString(
+            format!"%s (%s)"(deviceUdid, connectionLabel(deviceUdid))));
 
         try {
             lockdowndClient = new LockdowndClient(selectedDevice, "sideloader.device-info");

@@ -369,10 +369,29 @@ QMenu {
     padding: 6px;
 }
 
+/* The indicator column is reserved on every item, checkable or not.
+   Otherwise Qt indents only the checkable ones and the menu looks ragged. */
 QMenu::item {
-    padding: 8px 30px 8px 14px;
+    padding: 8px 30px 8px 34px;
     border-radius: 7px;
     margin: 1px 2px;
+}
+
+QMenu::indicator {
+    width: 14px;
+    height: 14px;
+    left: 12px;
+    border-radius: 4px;
+}
+
+QMenu::indicator:non-exclusive:unchecked {
+    background: transparent;
+    border: 1px solid #4A4A50;
+}
+
+QMenu::indicator:non-exclusive:checked {
+    background-color: #0A84FF;
+    border: 1px solid #0A84FF;
 }
 
 QMenu::item:selected {

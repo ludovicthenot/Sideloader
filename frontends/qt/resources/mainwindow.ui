@@ -309,7 +309,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="selectIpaButton">
-                      <property name="text"><string>Browse</string></property>
+                      <!-- Leading spaces are the icon-to-text gap: Qt exposes
+                           no spacing property for this in QSS. -->
+                      <property name="text"><string>  Browse</string></property>
                       <property name="toolButtonStyle"><enum>Qt::ToolButtonTextBesideIcon</enum></property>
                      </widget>
                     </item>
@@ -404,7 +406,8 @@
                   <item>
                    <widget class="QPushButton" name="installButton">
                     <property name="enabled"><bool>false</bool></property>
-                    <property name="text"><string>Install</string></property>
+                    <!-- See selectIpaButton: the leading spaces are the gap. -->
+                    <property name="text"><string>  Install</string></property>
                    </widget>
                   </item>
                  </layout>
