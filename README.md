@@ -6,6 +6,13 @@ Sideloader is an application made to install third-party applications on iOS dev
 
 You can see it as an open-source replacement of _Cydia Impactor_.
 
+> **This is a fork of [Dadoum/Sideloader](https://github.com/Dadoum/Sideloader).** It exists
+> to keep the D codebase building on a current toolchain and to finish the Qt frontend on
+> Windows. Dadoum is now writing a Rust successor,
+> [super-sideloader](https://github.com/apple-crates/super-sideloader) — look there for the
+> project's future direction. Everything below written in the first person is Dadoum's, and
+> so is the sponsor link at the end; please send tips his way.
+
 <center>Leave a star and a small tip if you feel like it! — more information at the end!</center>
 
 ## Current state
@@ -15,7 +22,10 @@ Currently, there is a cross-platform CLI, with most features working.
 And there is a Linux frontend based on GTK 4. It was the priority since no real alternative existed 
 before.
 
-A Qt frontend is being made for Linux, Windows and macOS.
+The Qt frontend targets Linux, Windows and macOS. On Windows it is complete and in daily use:
+signing, installing with per-stage progress, a sign-in that survives a restart, automatic
+renewal before the seven-day certificate expires, and a tray icon. Linux and macOS compile
+but are untested by this fork — see [Notes on platform support](#notes-on-platform-support).
 
 A SwiftUI macOS GUI could be made (I got no Mac to work on that, but all the scaffolding code is here,
 if someone wants to work on that).
@@ -24,6 +34,17 @@ I tried to make the code as readable as possible, if you struggle to understand 
 I am here to help! I don't want this to finish unmaintained!
 
 ## Usage
+
+### Qt
+
+The Windows build, with a device connected and the sideloading tab:
+
+![](screenshots/screenshot-qt-windows-device.png)
+
+![](screenshots/screenshot-qt-windows-sideload.png)
+
+Signing in is asked for once: the session is kept in the Windows Credential Manager, and
+installs are renewed from the notification area before the seven-day certificate lapses.
 
 ### GTK
 
@@ -130,8 +151,9 @@ see [this link](https://slproweb.com/products/Win32OpenSSL.html))
 ### Other distributions:
 
 Get a recent version `ldc2` or `dmd` installed (an installation script is available on 
-[dlang.org](https://dlang.org/)). It is tested with D 2.104.2 (= LDC 1.34) but it will probably compile with
-older compilers. GNU D compiler won't compile that code though (the cryptography library makes 
+[dlang.org](https://dlang.org/)). It is tested with D 2.112 (= LDC 1.42). Compilers older than
+D 2.109 will not work: some dependencies still used the `delete` expression that the language
+removed, and this tree is pinned to the versions that dropped it. GNU D compiler won't compile that code though (the cryptography library makes 
 use of SIMD instructions that cannot be compiled by GDC yet).
 
 ## How it works?
@@ -166,6 +188,31 @@ to add the entitlement for debugging)_
 - Set-up SideStore's pairing file
 - Manage App IDs and certificates for free developer accounts.
 - iOS version range is unknown. 32-bit support is untested. Please report any issue here!!
+
+## Notes on platform support
+
+### Linux
+
+Both the GTK and the Qt frontend build. The GTK one is the better tested of the two.
+
+### Windows
+
+The Qt frontend is the one to use, and the one this fork tests on every change.
+
+Sideloader is built with MSVC, so the MSVC builds of libimobiledevice and libplist are the
+ones you need; the CI package ships them, along with Qt, the icons, the bundled font and the
+MSVC runtime, so it should run as unpacked.
+
+If you assemble the runtime yourself, note that the HTTP library probes OpenSSL by filename
+and asks for `libssl-3-x64.dll` before `libssl-3.dll`. Sideloader restricts the DLL search
+path to its own directory at startup, so a name it does not ship simply falls through to the
+next candidate instead of matching some unrelated OpenSSL found on `%PATH%` — but that also
+means every DLL it needs has to sit next to the executable.
+
+### macOS
+
+The Qt frontend builds and is cross-compiled by CI, but nobody is currently testing it.
+A SwiftUI GUI would be the better fit; the scaffolding is in `swift/`.
 
 ## Acknowledgements and references
 
