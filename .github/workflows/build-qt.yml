@@ -268,7 +268,8 @@ jobs:
           compiler: ldc-1.42.0
 
       # qtsvg matters as much as qtbase: every icon in the interface is an
-      # SVG, and without the plugin they all render as blank squares.
+      # SVG, and without the plugin they all render as blank squares. qttools
+      # is where Qt 5 keeps windeployqt -- it only moved into qtbase in 6.3.
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -278,7 +279,7 @@ jobs:
           target: 'desktop'
           dir: '${{github.workspace}}/qt/'
           arch: 'win64_msvc2019_64'
-          archives: 'qtbase qtsvg'
+          archives: 'qtbase qtsvg qttools'
 
       - name: Write version file
         run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
