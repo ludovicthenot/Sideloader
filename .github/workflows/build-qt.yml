@@ -299,9 +299,12 @@ jobs:
       # life in 2023. OpenSSL 3 is built from source on the runner rather than
       # taken from a third-party installer, and cached so only the first run
       # pays for it.
-      - name: Cache OpenSSL 3
+      # Restore and save are split so the nine minutes of OpenSSL survive a
+      # failure further down the job. The combined action skips its save step
+      # when the job fails, which means every retry pays for it again.
+      - name: Restore OpenSSL 3
         id: openssl-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{github.workspace}}/openssl3
           key: openssl3-x64-windows-2022-v1
@@ -314,6 +317,13 @@ jobs:
           $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed\x64-windows\bin'
           Copy-Item (Join-Path $vcpkgBin 'libssl-3-x64.dll'), (Join-Path $vcpkgBin 'libcrypto-3-x64.dll') openssl3
 
+      - name: Save OpenSSL 3
+        if: always() && steps.openssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{github.workspace}}/openssl3
+          key: openssl3-x64-windows-2022-v1
+
       - name: Fetch the native runtime
         run: |
           Invoke-WebRequest -Uri $env:NATIVES_URL -OutFile natives.zip
@@ -323,15 +333,36 @@ jobs:
           }
           Expand-Archive natives.zip -DestinationPath natives
 
+      # Everything this job assumes about its inputs, checked in one place. A
+      # failure in the packaging step below otherwise says nothing about which
+      # of them was wrong.
+      - name: Check the packaging inputs
+        run: |
+          Write-Host "QT_ROOT_DIR = '$env:QT_ROOT_DIR'"
+          Write-Host "Qt bin contents:"
+          Get-ChildItem (Join-Path $env:QT_ROOT_DIR 'bin') -Filter *.exe -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "  $($_.Name)" }
+          Write-Host "sideloader.exe built: $(Test-Path (Join-Path 'bin' 'sideloader.exe'))"
+          Write-Host "natives dlls: $(@(Get-ChildItem (Join-Path 'natives' '*.dll') -ErrorAction SilentlyContinue).Count)"
+          Write-Host "openssl3 dlls: $(@(Get-ChildItem (Join-Path 'openssl3' '*.dll') -ErrorAction SilentlyContinue).Count)"
+
       - name: Assemble the package
         run: |
           # windeployqt rather than a hand-picked DLL list: it also brings the
           # platform, imageformats and iconengines plugins that the old list
           # left out, and --compiler-runtime saves users installing the MSVC
-          # redistributable by hand.
+          # redistributable by hand. It may not be in the Qt bin directory
+          # depending on which archives were installed, so fall back to PATH.
           $windeployqt = Join-Path $env:QT_ROOT_DIR 'bin\windeployqt.exe'
-          & $windeployqt --release --no-translations --no-system-d3d-compiler `
-              --no-opengl-sw --compiler-runtime (Join-Path 'bin' 'sideloader.exe')
+          if (-not (Test-Path $windeployqt)) {
+            $onPath = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
+            if (-not $onPath) { throw "windeployqt was not found under '$env:QT_ROOT_DIR' nor on PATH" }
+            $windeployqt = $onPath.Source
+          }
+          Write-Host "using $windeployqt"
+
+          & $windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw --compiler-runtime (Join-Path 'bin' 'sideloader.exe')
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
 
           # Everything except the .NET interop helper, which nothing here calls,
           # and the bundle's vcruntime140.dll, which is older than the one
