@@ -9,7 +9,7 @@ You can see it as an open-source replacement of _Cydia Impactor_.
 > **This is a fork of [Dadoum/Sideloader](https://github.com/Dadoum/Sideloader).** It exists
 > to keep the D codebase building on a current toolchain and to finish the Qt frontend on
 > Windows. Dadoum is now writing a Rust successor,
-> [super-sideloader](https://github.com/apple-crates/super-sideloader) — look there for the
+> [super-sideloader](https://github.com/Dadoum/apple-crates/tree/main/super-sideloader) — look there for the
 > project's future direction. Everything below written in the first person is Dadoum's, and
 > so is the sponsor link at the end; please send tips his way.
 
