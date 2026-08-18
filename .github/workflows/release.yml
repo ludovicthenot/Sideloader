@@ -1,0 +1,109 @@
+# Publishes a release from a manual run.
+#
+# The binaries come from the ordinary Qt build workflow rather than a second
+# copy of its steps, so what ships is what CI has been testing all along. Only
+# the platforms that actually build are attached: macOS is cross-compiled from
+# Linux and has never produced a working artifact.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create, e.g. v0.1.0'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as a pre-release'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-qt.yml
+    with:
+      version: ${{ inputs.tag }}
+
+  publish:
+    needs: build
+    # The called workflow reports failure as long as the macOS jobs fail, which
+    # they always do. Whether there is anything worth releasing is decided
+    # below, by whether the artifacts are actually there.
+    if: always()
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Required. If the Windows build did not produce a package there is no
+      # release to make, and this step failing is the intended outcome.
+      - name: Collect the Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: sideloader-qt-windows-x86_64
+          path: staging/windows
+
+      # Optional, and deliberately so: Linux compiles but nobody tests it, so
+      # its absence should not sink a Windows release.
+      - name: Collect the Linux build
+        id: linux
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: sideloader-qt-linux-x86_64
+          path: staging/linux
+
+      - name: Lay out the assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp staging/windows/*.zip "dist/sideloader-qt-windows-x86_64-${{ inputs.tag }}.zip"
+
+          # The Linux job uploads the binary and its debug symbols loose, so
+          # they get archived here rather than attached as two bare files.
+          if [ -d staging/linux ] && [ -n "$(ls -A staging/linux)" ]; then
+            tar -czf "dist/sideloader-qt-linux-x86_64-${{ inputs.tag }}.tar.gz" -C staging/linux .
+          fi
+
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          ls -la
+          cat SHA256SUMS.txt
+
+      - name: Write the release notes
+        run: |
+          cat > notes.md <<'EOF'
+          Built by GitHub Actions from this repository, from the commit this tag points at.
+          Verify a download against `SHA256SUMS.txt` before running it.
+
+          ### Windows (x86_64)
+
+          `sideloader-qt-windows-x86_64-*.zip` — unpack anywhere and run `sideloader.exe`.
+          Everything it needs travels with it: Qt, the native libraries, OpenSSL 3 and the
+          MSVC runtime. This is the platform that gets tested.
+
+          ### Linux (x86_64)
+
+          `sideloader-qt-linux-x86_64-*.tar.gz` — dynamically linked, so it expects Qt 5,
+          libimobiledevice and libplist from your distribution. It compiles on every push,
+          but nobody is testing it; treat it as a convenience, not a supported build.
+
+          ### macOS
+
+          Not published. The cross-compilation from Linux has never produced a working
+          build, and there is no Mac to test one on.
+          EOF
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag }}" dist/* \
+            --target "${{ github.sha }}" \
+            --title "Sideloader ${{ inputs.tag }}" \
+            --notes-file notes.md \
+            ${{ inputs.prerelease && '--prerelease' || '' }}

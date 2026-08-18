@@ -1,6 +1,14 @@
 name: Qt builds
 
-on: push
+on:
+  push:
+  workflow_call:
+    inputs:
+      version:
+        description: Name to stamp into the binary instead of the branch.
+        type: string
+        required: false
+        default: ''
 
 env:
   BUILD_TYPE: Release
@@ -22,7 +30,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libz-dev elfutils qtbase5-dev
 
       - name: Write version file
-        run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
+        run: echo 'module version_string; enum versionStr = "Sideloader automated build, ${{ inputs.version || format('branch {0}', github.ref_name) }}, commit ${{ github.sha }}";' > source/version_string.d
 
       - name: Build
         run: dub build -b release-debug --compiler=ldc2 :qt-frontend
@@ -120,7 +128,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libz-dev elfutils clang lld-15
 
       - name: Write version file
-        run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
+        run: echo 'module version_string; enum versionStr = "Sideloader automated build, ${{ inputs.version || format('branch {0}', github.ref_name) }}, commit ${{ github.sha }}";' > source/version_string.d
 
       - name: Build
         run: dub build -b release-debug --compiler=ldc2 --arch x86_64-apple-darwin :qt-frontend
@@ -222,7 +230,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libz-dev elfutils clang lld-15
 
       - name: Write version file
-        run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
+        run: echo 'module version_string; enum versionStr = "Sideloader automated build, ${{ inputs.version || format('branch {0}', github.ref_name) }}, commit ${{ github.sha }}";' > source/version_string.d
 
       - name: Build
         run: dub build -b release-debug --compiler=ldc2 --arch arm64-apple-macos :qt-frontend
@@ -282,7 +290,7 @@ jobs:
           archives: 'qtbase qtsvg qttools'
 
       - name: Write version file
-        run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
+        run: echo 'module version_string; enum versionStr = "Sideloader automated build, ${{ inputs.version || format('branch {0}', github.ref_name) }}, commit ${{ github.sha }}";' > source/version_string.d
 
       # QT_ROOT_DIR is the installation root. Version 4 of the action dropped
       # the variable this used to read, and repurposed the similarly named one
