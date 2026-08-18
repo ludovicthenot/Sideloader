@@ -85,8 +85,6 @@ struct SavedDeveloperSession {
     string appleId;
     string adsid;
     string token;
-    /// Apple's service directory, handed out at sign-in.
-    string[string] urlBag;
 }
 
 class DeveloperSession {
@@ -97,26 +95,35 @@ class DeveloperSession {
         this.appleAccount = appleAccount;
     }
 
-    /// Snapshot of the session, to hand to a secret store.
+    /++
+        Snapshot of the session, to hand to a secret store.
+
+        Apple's URL bag is deliberately left out: it runs to some 13 KB,
+        which no longer fits a Windows Credential Manager entry, and it can
+        simply be fetched again.
+    +/
     SavedDeveloperSession save() {
         return SavedDeveloperSession(
             appleAccount.appleId(),
             appleAccount.sessionAdsid(),
             appleAccount.sessionToken(),
-            appleAccount.urls,
         );
     }
 
     /++
         Rebuilds a session from a snapshot, without contacting Apple.
 
-        Nothing is validated here: an expired or revoked token only shows up
+        The token is not validated: an expired or revoked one only shows up
         on the first request, so callers should be ready to fall back to a
-        fresh sign-in.
+        fresh sign-in. Does reach the network, to fetch the URL bag.
     +/
     static DeveloperSession restore(Device device, ADI adi, SavedDeveloperSession saved) {
+        // The URL bag was not persisted, so it is fetched again here. It is a
+        // public, unauthenticated lookup.
+        auto urlBag = AppleAccount.fetchUrlBag(XcodeApplicationInformation, device);
+
         return new DeveloperSession(new AppleAccount(
-            device, adi, XcodeApplicationInformation, saved.urlBag,
+            device, adi, XcodeApplicationInformation, urlBag,
             saved.appleId, saved.adsid, saved.token));
     }
 

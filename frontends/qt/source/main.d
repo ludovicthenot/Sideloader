@@ -16,6 +16,8 @@ import qt.core.dir;
 import qt.core.string;
 import qt.core.stringlist;
 import qt.gui.fontdatabase;
+import qt.gui.guiapplication;
+import qt.gui.icon;
 import qt.widgets.application;
 
 import slf4d;
@@ -42,16 +44,6 @@ int main(string[] args) {
     }
 
     signal(SIGSEGV, cast(Parameters!signal[1]) &SIGSEGV_trace);
-    version(Windows) {
-        import graphical_app;
-        SetUnhandledExceptionFilter(&SIGSEGV_win);
-
-        import logging;
-        auto loggingProvider = new shared OutputDebugStringLoggingProvider(level);
-    } else {
-        auto loggingProvider = new shared DefaultProvider(true, level);
-    }
-    configureLoggingProvider(loggingProvider);
 
     version (Windows) {
         string configurationPath = environment["AppData"];
@@ -63,6 +55,20 @@ int main(string[] args) {
         .expandTilde();
     }
     configurationPath = configurationPath.buildPath(applicationName);
+
+    version(Windows) {
+        import graphical_app;
+        SetUnhandledExceptionFilter(&SIGSEGV_win);
+
+        import logging;
+        // Logs go to a file as well: a GUI build has no console, and
+        // OutputDebugString needs a debugger attached to be of any use.
+        auto loggingProvider = new shared OutputDebugStringLoggingProvider(
+            level, configurationPath.buildPath("logs"));
+    } else {
+        auto loggingProvider = new shared DefaultProvider(true, level);
+    }
+    configureLoggingProvider(loggingProvider);
 
     auto log = getLogger();
 
@@ -83,6 +89,16 @@ int main(string[] args) {
         if (QFontDatabase.addApplicationFont(*cpp_new!QString(fontDir ~ fontFile)) == -1)
             log.warnF!"Could not load bundled font %s"(fontFile);
     }
+
+    // Set on the application so every window and dialog inherits it. The
+    // tray icon also reads it back off the main window via WM_GETICON.
+    string brandingDir = QCoreApplication.applicationDirPath().toConstWString().to!string()
+        ~ "/branding/";
+    auto appIcon = QIcon(*cpp_new!QString(brandingDir ~ "sideloader.ico"));
+    if (appIcon.isNull())
+        log.warn("Application icon not found; falling back to the system default.");
+    else
+        QGuiApplication.setWindowIcon(appIcon);
 
     qtApp.setStyleSheet(*cpp_new!QString(import("theme.qss")));
 

@@ -38,6 +38,10 @@ version (Windows) {
         LPWSTR UserName;
     }
 
+    /// CRED_MAX_CREDENTIAL_BLOB_SIZE. Anything larger is rejected outright,
+    /// which is easy to hit: Apple's URL bag alone is five times this.
+    private enum maxBlobSize = 2560;
+
     private extern (Windows) nothrow @nogc {
         BOOL CredWriteW(CREDENTIALW* credential, DWORD flags);
         BOOL CredReadW(LPCWSTR targetName, DWORD type, DWORD flags, CREDENTIALW** credential);
@@ -55,6 +59,14 @@ bool storeSecret(string target, string userName, string secret) {
     version (Windows) {
         auto blob = cast(ubyte[]) secret.dup;
 
+        if (blob.length > maxBlobSize) {
+            import slf4d;
+            getLogger().errorF!
+                "Secret is %d bytes; the Credential Manager caps entries at %d."
+                (blob.length, maxBlobSize);
+            return false;
+        }
+
         CREDENTIALW credential;
         credential.Type = CRED_TYPE_GENERIC;
         credential.TargetName = cast(LPWSTR) target.toUTF16z();
@@ -63,7 +75,12 @@ bool storeSecret(string target, string userName, string secret) {
         credential.CredentialBlob = blob.ptr;
         credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
 
-        return CredWriteW(&credential, 0) != 0;
+        if (CredWriteW(&credential, 0))
+            return true;
+
+        import slf4d;
+        getLogger().errorF!"CredWriteW failed with error %d."(GetLastError());
+        return false;
     } else {
         return false;
     }

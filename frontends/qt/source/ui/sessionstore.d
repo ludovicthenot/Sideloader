@@ -22,23 +22,35 @@ private enum credentialTarget = "Sideloader:AppleDeveloperSession";
 
 /// Stores the session so the next launch does not ask for a password.
 void rememberSession(DeveloperSession session) {
-    auto saved = session.save();
+    auto log = getLogger();
+    log.info("Saving the developer session...");
 
-    JSONValue urlBag = JSONValue(string[string].init);
-    foreach (key, value; saved.urlBag)
-        urlBag[key] = JSONValue(value);
+    // Everything here runs inside a Qt slot, and an exception cannot cross
+    // back into C++: it would be swallowed, leaving no session saved and no
+    // trace of why. Catching it keeps the failure visible.
+    try {
+        rememberSessionImpl(session);
+    } catch (Exception ex) {
+        log.errorF!"Could not save the session: %s"(ex);
+    }
+}
+
+private void rememberSessionImpl(DeveloperSession session) {
+    auto saved = session.save();
 
     JSONValue document = [
         "appleId": JSONValue(saved.appleId),
         "adsid": JSONValue(saved.adsid),
         "token": JSONValue(saved.token),
-        "urlBag": urlBag,
     ];
 
-    if (storeSecret(credentialTarget, saved.appleId, document.toString()))
+    string payload = document.toString();
+    getLogger().infoF!"Session payload built for %s (%d bytes)."(saved.appleId, payload.length);
+
+    if (storeSecret(credentialTarget, saved.appleId, payload))
         getLogger().infoF!"Session saved for %s."(saved.appleId);
     else
-        getLogger().warn("Could not save the session; sign-in will be asked again next time.");
+        getLogger().warn("Credential Manager refused the session; sign-in will be asked again.");
 }
 
 /++
@@ -56,15 +68,10 @@ DeveloperSession recallSession(Device device, ADI adi) {
     try {
         auto document = parseJSON(stored);
 
-        string[string] urlBag;
-        foreach (key, value; document["urlBag"].object)
-            urlBag[key] = value.str;
-
         auto saved = SavedDeveloperSession(
             document["appleId"].str,
             document["adsid"].str,
             document["token"].str,
-            urlBag,
         );
 
         getLogger().infoF!"Restoring saved session for %s."(saved.appleId);
