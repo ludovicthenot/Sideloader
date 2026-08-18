@@ -245,32 +245,40 @@ jobs:
             ${{github.workspace}}/Sideloader-qt.app.tgz
 
   build-windows-x86_64:
-    runs-on: windows-2019
+    runs-on: windows-2022
+
+    env:
+      # Pinned to a release rather than tracking "latest", and checked
+      # against a known hash so a re-uploaded asset cannot slip in. These are
+      # the binaries Sideloader has always been tested against.
+      NATIVES_URL: https://github.com/libimobiledevice-win32/imobiledevice-net/releases/download/v1.3.17/libimobiledevice.1.2.1-r1122-win-x64.zip
+      NATIVES_SHA256: D7CB57A71270848C35C3F01006701535AADF6DFB52325863EA368C94A34A2CAB
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: TheMrMilchmann/setup-msvc-dev@v3
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          toolset: 14.0
           arch: x64
 
       - uses: dlang-community/setup-dlang@v1
         with:
-          compiler: ldc-1.33.0
+          compiler: ldc-1.42.0
 
+      # qtsvg matters as much as qtbase: every icon in the interface is an
+      # SVG, and without the plugin they all render as blank squares.
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           aqtversion: '==3.1.*'
           version: '5.15.2'
           host: 'windows'
           target: 'desktop'
           dir: '${{github.workspace}}/qt/'
-          arch: 'win64_msvc2015_64'
-          archives: 'qtbase'
+          arch: 'win64_msvc2019_64'
+          archives: 'qtbase qtsvg'
 
       - name: Write version file
         run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
@@ -278,20 +286,91 @@ jobs:
       - name: Build
         run: |
           $env:LIB += ';' + $env:Qt5_Dir + '\lib'
-          echo $env:LIB
           dub build -b release-debug --compiler=ldc2 :qt-frontend
 
-      - name: Rename
+      # The libimobiledevice bundle still ships OpenSSL 1.1, which went end of
+      # life in 2023. OpenSSL 3 is built from source on the runner rather than
+      # taken from a third-party installer, and cached so only the first run
+      # pays for it.
+      - name: Cache OpenSSL 3
+        id: openssl-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{github.workspace}}/openssl3
+          key: openssl3-x64-windows-2022-v1
+
+      - name: Build OpenSSL 3
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir "${{github.workspace}}/bin/platforms"
-          Copy-Item ($env:Qt5_DIR + '/plugins/platforms/qwindows.dll') "${{github.workspace}}/bin/platforms"
-          mkdir "${{github.workspace}}/bin/styles"
-          Copy-Item ($env:Qt5_DIR + '/plugins/styles/qwindowsvistastyle.dll') "${{github.workspace}}/bin/styles"
-          Copy-Item ($env:Qt5_DIR + '/bin/Qt5Core.dll'),($env:Qt5_DIR + '/bin/Qt5Gui.dll'),($env:Qt5_DIR + '/bin/Qt5Widgets.dll') "${{github.workspace}}/bin"
-          Compress-Archive -Path bin/* -DestinationPath sideloader-qt-windows.zip 
+          vcpkg install openssl:x64-windows
+          New-Item -ItemType Directory -Force -Path openssl3 | Out-Null
+          $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed\x64-windows\bin'
+          Copy-Item (Join-Path $vcpkgBin 'libssl-3-x64.dll'), (Join-Path $vcpkgBin 'libcrypto-3-x64.dll') openssl3
+
+      - name: Fetch the native runtime
+        run: |
+          Invoke-WebRequest -Uri $env:NATIVES_URL -OutFile natives.zip
+          $sha = (Get-FileHash natives.zip -Algorithm SHA256).Hash
+          if ($sha -ne $env:NATIVES_SHA256) {
+            throw "Native runtime checksum mismatch: got $sha, expected $env:NATIVES_SHA256"
+          }
+          Expand-Archive natives.zip -DestinationPath natives
+
+      - name: Assemble the package
+        run: |
+          # windeployqt rather than a hand-picked DLL list: it also brings the
+          # platform, imageformats and iconengines plugins that the old list
+          # left out, and --compiler-runtime saves users installing the MSVC
+          # redistributable by hand.
+          $windeployqt = Join-Path $env:Qt5_DIR 'bin\windeployqt.exe'
+          & $windeployqt --release --no-translations --no-system-d3d-compiler `
+              --no-opengl-sw --compiler-runtime (Join-Path 'bin' 'sideloader.exe')
+
+          # Everything except the .NET interop helper, which nothing here calls,
+          # and the bundle's vcruntime140.dll, which is older than the one
+          # windeployqt just laid down.
+          Get-ChildItem (Join-Path 'natives' '*.dll') |
+            Where-Object { $_.Name -notin 'imobiledevice-net-lighthouse.dll', 'vcruntime140.dll' } |
+            Copy-Item -Destination bin
+          Copy-Item (Join-Path 'openssl3' '*.dll') bin
+
+          # Read at runtime from next to the executable, so they have to
+          # travel with it.
+          foreach ($dir in 'icons', 'fonts', 'branding') {
+            Copy-Item (Join-Path 'frontends' (Join-Path 'qt' (Join-Path 'resources' $dir))) bin -Recurse -Force
+          }
+
+          Copy-Item LICENSE, README.md bin
+          Compress-Archive -Path (Join-Path 'bin' '*') -DestinationPath sideloader-qt-windows-x86_64.zip
+
+      - name: Smoke test the package
+        run: |
+          # A build that links can still produce a package that cannot start,
+          # which is the failure users actually hit. Launching it is the only
+          # way to find out.
+          $exe = Join-Path (Get-Location) 'bin\sideloader.exe'
+          $app = Start-Process -FilePath $exe -WorkingDirectory bin -PassThru
+          Start-Sleep -Seconds 20
+
+          if ($app.HasExited) {
+            throw "sideloader.exe exited with code $($app.ExitCode) instead of staying up"
+          }
+
+          # OpenSSL has to come from the package. Resolved through %PATH% it
+          # picks up whatever unrelated copy the machine happens to have, and
+          # the mismatched pair fails at the first HTTPS request.
+          $app.Refresh()
+          $packageDir = Split-Path $exe
+          $strays = @($app.Modules |
+            Where-Object { $_.ModuleName -match 'ssl|crypto' } |
+            Where-Object { (Split-Path $_.FileName) -ne $packageDir })
+          if ($strays.Count -gt 0) {
+            throw "OpenSSL loaded from outside the package: $(($strays | ForEach-Object FileName) -join ', ')"
+          }
+
+          Stop-Process -Id $app.Id -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: sideloader-qt-windows-x86_64
-          path: |
-            ${{github.workspace}}/sideloader-qt-windows.zip
+          path: sideloader-qt-windows-x86_64.zip
