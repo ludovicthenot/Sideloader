@@ -283,9 +283,16 @@ jobs:
       - name: Write version file
         run: echo 'module version_string; enum versionStr = "Sideloader automated build, branch ${{ github.ref_name }}, commit ${{ github.sha }}";' > source/version_string.d
 
+      # QT_ROOT_DIR is the installation root. Version 4 of the action dropped
+      # the variable this used to read, and repurposed the similarly named one
+      # to point at lib/cmake for CMake's benefit.
       - name: Build
         run: |
-          $env:LIB += ';' + $env:Qt5_Dir + '\lib'
+          echo "Qt root: $env:QT_ROOT_DIR"
+          if (-not (Test-Path (Join-Path $env:QT_ROOT_DIR 'lib'))) {
+            throw "Qt does not look installed at '$env:QT_ROOT_DIR'"
+          }
+          $env:LIB += ';' + (Join-Path $env:QT_ROOT_DIR 'lib')
           dub build -b release-debug --compiler=ldc2 :qt-frontend
 
       # The libimobiledevice bundle still ships OpenSSL 1.1, which went end of
@@ -322,7 +329,7 @@ jobs:
           # platform, imageformats and iconengines plugins that the old list
           # left out, and --compiler-runtime saves users installing the MSVC
           # redistributable by hand.
-          $windeployqt = Join-Path $env:Qt5_DIR 'bin\windeployqt.exe'
+          $windeployqt = Join-Path $env:QT_ROOT_DIR 'bin\windeployqt.exe'
           & $windeployqt --release --no-translations --no-system-d3d-compiler `
               --no-opengl-sw --compiler-runtime (Join-Path 'bin' 'sideloader.exe')
 
