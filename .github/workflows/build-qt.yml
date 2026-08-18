@@ -16,7 +16,7 @@ jobs:
 
       - uses: dlang-community/setup-dlang@v1
         with:
-          compiler: ldc-1.33.0
+          compiler: ldc-1.42.0
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libz-dev elfutils qtbase5-dev
