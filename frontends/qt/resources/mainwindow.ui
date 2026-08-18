@@ -198,7 +198,7 @@
               </item>
               <item>
                <widget class="QLabel" name="emptyStateHint">
-                <property name="text"><string>Connect an iPhone or iPad over USB, unlock it, then refresh.</string></property>
+                <property name="text"><string>Connect an iPhone or iPad over USB or Wi-Fi, unlock it, then refresh.</string></property>
                 <property name="alignment"><set>Qt::AlignCenter</set></property>
                 <property name="wordWrap"><bool>true</bool></property>
                </widget>

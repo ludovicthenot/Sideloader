@@ -247,6 +247,11 @@ class MainWindow: QMainWindow {
         QObject.connect(ui.minimizeButton.signal!"clicked", this.slot!"minimizeWindow");
         QObject.connect(ui.maximizeButton.signal!"clicked", this.slot!"toggleMaximized");
         QObject.connect(ui.closeButton.signal!"clicked", this.slot!"closeWindow");
+
+        // Devices arrive asynchronously from usbmuxd, so the picker starts
+        // empty. refreshView only runs on a selection change, which never
+        // fires for a combo box that was empty all along.
+        ui.deviceCard.setVisible(false);
     }
 
     /++
@@ -662,10 +667,16 @@ class MainWindow: QMainWindow {
     @QSlot
     final void refreshView(int index) {
         if (index == -1) {
+            // Nothing to pick from, so the picker is noise: an empty card
+            // with a lone icon reads as a widget that failed to load. The
+            // empty state below already explains what to do.
+            ui.deviceCard.setVisible(false);
             ui.deviceSubtitle.setText(*cpp_new!QString(""));
             ui.stackedWidget.setCurrentIndex(0);
             return;
         }
+
+        ui.deviceCard.setVisible(true);
 
         if (selectedDevice) {
             object.destroy(selectedDevice);
